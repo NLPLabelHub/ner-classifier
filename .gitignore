@@ -1,0 +1,29 @@
+# https://raw.githubusercontent.com/github/gitignore/master/Python.gitignore
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv*
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.vscode/
+
+# Artifacts
+.python-version
+.coverage
+.tox/
+pytest.log
+build/
+dist/
+*.prof
+var/
+log/
+docker_log/
+htmlcov/
