@@ -5,7 +5,14 @@ from tqdm import tqdm
 import requests
 import spacy
 from spacy.tokens import DocBin
-from .html_tokenizer import HTMLTokenizer2
+import random
+from spacy.util import minibatch
+from spacy.training import Example
+from .html_tokenizer import HTMLTokenizer
+
+
+TRAIN_SPACY_DOC = "./train.spacy"
+TRAIN_SPACY_MODEL = "./model.spacy"
 
 
 class Project:
@@ -18,7 +25,10 @@ class Project:
         self.model_dir = config_dir
         self.documents = Documents(self.config["documents"], config_dir)
         self.documents.fetch_documents()
-        self.documents.create_training_data()
+        if not exists(TRAIN_SPACY_DOC):
+            self.documents.create_training_data()
+        if not exists(TRAIN_SPACY_MODEL):
+            self.documents.train_model(iterations=20)
 
 
 class Documents:
@@ -43,7 +53,7 @@ class Documents:
     def create_training_data(self):
         print("[*] Creating training data")
         nlp = spacy.blank("en")
-        nlp.tokenizer = HTMLTokenizer2(nlp.vocab)
+        nlp.tokenizer = HTMLTokenizer(nlp.vocab)
         db = DocBin()
         for document in tqdm(self.documents):
             url = document["file"]
@@ -75,4 +85,51 @@ class Documents:
             doc.ents = ents
             db.add(doc)
 
-        db.to_disk("./train.spacy")
+        db.to_disk(TRAIN_SPACY_DOC)
+
+    def load_train_data(self):
+        doc_bin = DocBin().from_disk(TRAIN_SPACY_DOC)
+        train_data = []
+        nlp = spacy.blank("en")
+        nlp.tokenizer = HTMLTokenizer(nlp.vocab)
+        for doc in doc_bin.get_docs(nlp.vocab):
+            entities = []
+            for ent in doc.ents:
+                entities.append((ent.start_char, ent.end_char, ent.label_))
+
+            spacy_entry = (doc.text, {"entities": entities})
+            train_data.append(spacy_entry)
+        return train_data
+
+    def train_model(self, iterations):
+        train_data = self.load_train_data()
+        # Create the builtin NER pipeline
+        nlp = spacy.blank("en")
+        nlp.tokenizer = HTMLTokenizer(nlp.vocab)
+        ner = nlp.add_pipe('ner')
+
+        # Add labels
+        for _, annotations in train_data:
+            for ent in annotations['entities']:
+                ner.add_label(ent[2])
+
+        with nlp.disable_pipes(*[]):
+            optimizer = nlp.begin_training()
+            examples = []
+            for text, annots in train_data:
+                examples.append(Example.from_dict(nlp.make_doc(text), annots))
+            nlp.initialize(lambda: examples)
+            for i in range(iterations):
+                random.shuffle(examples)
+                losses = {}
+                for batch in minibatch(examples, size=8):
+                    nlp.update(
+                        batch,
+                        drop=0.2,        # droput - make it harder to memorise
+                        sgd=optimizer,   # sgd    - callable to update weights
+                        losses=losses)
+                    print(losses)
+        # By now disable saving the tokenizer
+        nlp.tokenizer.to_disk = lambda *args, **kwargs: None
+        nlp.to_disk(TRAIN_SPACY_MODEL)
+        return nlp
