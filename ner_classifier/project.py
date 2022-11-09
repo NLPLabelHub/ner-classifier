@@ -50,17 +50,27 @@ class Documents:
             print(url)
             filename = join(self.documents_dir, basename(url))
             text = open(filename, "r").read()
-            annotations = []
-            for annotation in document["annotations"]:
-                annotations.append((
-                    annotation["html_offset_start"],
-                    annotation["html_offset_end"],
-                    annotation["label"]))
             doc = nlp(text)
             ents = []
-            for start, end, label in annotations:
-                span = doc.char_span(start, end, label=label)
-                print(span)
+            for annotation in document["annotations"]:
+                span = doc.char_span(
+                    annotation["html_offset_start"],
+                    annotation["html_offset_end"],
+                    label=annotation["label"])
+                # If span is not found, it might be that the selection contains
+                # special symbols that need to escaped.
+                if span is None:
+                    selection = nlp.tokenizer.escape_selection(
+                        annotation["html_offset_start"],
+                        annotation["selection"])
+                    span = doc.char_span(
+                        annotation["html_offset_start"],
+                        annotation["html_offset_start"] + len(selection),
+                        label=annotation["label"])
+                    if span is None:
+                        raise Exception(f"Annotation {annotation} cannot be "
+                                        f"found in HTML document. Stopping "
+                                        f"training")
                 ents.append(span)
             doc.ents = ents
             db.add(doc)
