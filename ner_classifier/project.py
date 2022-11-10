@@ -2,6 +2,7 @@ from json import load
 from os import makedirs
 from os.path import join, exists, basename
 from tqdm import tqdm
+import pickle
 import requests
 import spacy
 from spacy.tokens import DocBin
@@ -28,7 +29,7 @@ class Project:
         if not exists(TRAIN_SPACY_DOC):
             self.documents.create_training_data()
         if not exists(TRAIN_SPACY_MODEL):
-            self.documents.train_model(iterations=20)
+            self.documents.train_model(iterations=30)
 
 
 class Documents:
@@ -129,7 +130,5 @@ class Documents:
                         sgd=optimizer,   # sgd    - callable to update weights
                         losses=losses)
                     print(losses)
-        # By now disable saving the tokenizer
-        nlp.tokenizer.to_disk = lambda *args, **kwargs: None
-        nlp.to_disk(TRAIN_SPACY_MODEL)
+        pickle.dump(nlp, open(TRAIN_SPACY_MODEL, "wb"))
         return nlp
