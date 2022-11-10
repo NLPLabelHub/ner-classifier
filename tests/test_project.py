@@ -37,197 +37,58 @@ def test_escape_selection():
     assert raw_html == real_selection
 
 
-def test_nlp_sentence_span():
-    nlp = spacy.blank("en")
-
-    # Test 1: Create a simple sentence and see how it gets tokenized by the
-    # default tokenizer
-    text = "Text1 text2 text3"
-    doc = nlp(text)
-
-    tokens = text.split()
-    assert tokens == [x.text for x in doc]
-    assert doc.char_span(0, 5, "LABEL1").text == tokens[0]
-    assert doc.char_span(6, 11, "LABEL1").text == tokens[1]
-    assert doc.char_span(12, 17, "LABEL1").text == tokens[2]
-    assert doc.char_span(6, 17, "LABEL1").text == f"{tokens[1]} {tokens[2]}"
-
-    # Test 2: Create a simple HTML element and see how it gets tokenized
-    # default tokenizer
-    text = ("<span style=\"font-family:Helvetica,sans-serif;font-size:9pt\">"
-            "Page 1 of 2</span>")
-    doc = nlp(text)
-    assert [x.text for x in doc] == [
-        '<',
-        'span',
-        'style="font',
-        '-',
-        'family',
-        ':',
-        'Helvetica',
-        ',',
-        'sans',
-        '-',
-        'serif;font',
-        '-',
-        'size:9pt">Page',  # This token won't let find the char_span
-        '1',
-        'of',
-        '2</span',  # This token won't let find the char_span
-        '>'
-    ]
-
-    search = "Page 1 of 2"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1") is None
-
-    # Test 3: Create a simple HTML element and see how it gets tokenized
-    # default tokenizer. Now that we get tokens for 'Page', '1', 'of', '2', the
-    # char_span method returns the span
-    text = ("<span style=\"font-family:Helvetica,sans-serif;font-size:9pt\">"
-            " Page 1 of 2 (count)")
-    doc = nlp(text)
-    assert [x.text for x in doc] == [
-        '<',
-        'span',
-        'style="font',
-        '-',
-        'family',
-        ':',
-        'Helvetica',
-        ',',
-        'sans',
-        '-',
-        'serif;font',
-        '-',
-        'size:9pt',
-        '"',
-        '>',
-        'Page',
-        '1',
-        'of',
-        '2',
-        '(',
-        'count',
-        ')'
-    ]
-
-    search = "Page 1 of 2"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-
-def test_nlp_sentence_span_with_html_tokenizer():
-    from ner_classifier.html_tokenizer import HTMLTokenizer
-    #  nlp = spacy.blank("en")
-    #  nlp.tokenizer = create_html_tokenizer()(nlp)
-    nlp = spacy.blank("en")
-    nlp.tokenizer = HTMLTokenizer(nlp.vocab)
-
-    # Test 1: Create a simple HTML element and see how it gets tokenized
-    # default tokenizer
+def test_html_tokenizer():
     """
-    text = ("<br/><link rel=\"inline-style\" href=\"url\"/>"
-            "<span style=\"font-family:Helvetica,sans-serif;font-size:9pt\">"
-            "Page 1 of 2</span>")
+    This tests that the tokenizer deals well with the below situations:
+        - The first style has a list of attributes and the last one finishes
+          with semicolon, whereas the rest of the stlyes don't finish with
+          semicolon.
+        - There is a Balance statement with a £ symbol escaped. The tokenizer
+          is able to find the right token.
+        - The tokenizer is able to properly extract the Blance, Date and the
+          Description.
     """
-    text = ("<span style=\"font-family:Helvetica,sans-serif;font-size:9pt\">"
-            "Page 1 of 2</span>")
-    doc = nlp(text)
 
-    search = "Page 1 of 2"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    # Test 2: Test proper HTML file
-    nlp = spacy.blank("en")
-    #  nlp.tokenizer = create_html_tokenizer()(nlp)
-    nlp.tokenizer = HTMLTokenizer(nlp.vocab)
-
-    text = open("/home/hodei/.config/ner-classifier/djtalo85/Lloyds/documents/"
-                "2017_February_Statement_1.html", "r").read()
-    doc = nlp(text)
-
-    search = "Page 1 of 2"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    search = "24 October 2022"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    search = "something is incorrect"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    search = "Money In"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    search = "2,679.71"
-    ann = []
-    ann.append(text.index(search))
-    ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-
-def test_nlp_sentence_span_with_html_tokenizer_file2():
     from ner_classifier.html_tokenizer import HTMLTokenizer
     # Test 1: Test proper HTML file
     nlp = spacy.blank("en")
     nlp.tokenizer = HTMLTokenizer(nlp.vocab)
 
-    text = open("/home/hodei/.config/ner-classifier/djtalo85/Lloyds/documents/"
-                "2017_September_Statement_2.html", "r").read()
+    text = """
+    <p style="white-space:pre;margin:0;padding:0;top:329pt;left:537pt;">
+    <span style="font-size:.05pt;color:#ffffff">Balance (&#xa3;)</span></p>
+    <p style="white-space:pre;margin:0;padding:0;top:329pt;left:497pt">
+    <span style="font-size:9pt">236.69</span>
+    <span style="font-size:.05pt;color:#ffffff">.</span></p>
+    <p style="white-space:pre;margin:0;padding:0;top:354pt;left:57pt">
+    <span style="font-size:.05pt;color:#ffffff">Date</span></p>
+    <p style="white-space:pre;margin:0;padding:0;top:354pt;left:57pt">
+    <span style="font-size:9pt">25 Sep 17</span>
+    <span style="font-size:.05pt;color:#ffffff">.</span></p>
+    <p style="white-space:pre;margin:0;padding:0;top:354pt;left:122pt">
+    <span style="font-size:.05pt;color:#ffffff">Description</span></p>
+    <p style="white-space:pre;margin:0;padding:0;top:354pt;left:122pt">
+    <span style="font-size:9pt">SAINSBURY&apos;S S/MKT</span>
+    <span style="font-size:.05pt;color:#ffffff">.</span></p>
+    """
     doc = nlp(text)
 
     assert str(doc) == text
 
-    search = "Page 2 of 2"
+    search = "236.69"
     ann = []
     ann.append(text.index(search))
     ann.append(ann[0] + len(search))
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
+    assert doc.char_span(ann[0], ann[1], "BALANCE").text == search
 
     search = "25 Sep 17"
-    ann = [21497, 21506]
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    search = "25 Sep 17"
-    ann = [24048, 24057]
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-    search = "25 Sep 17"
-    ann = [26603, 26612]
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
+    ann = []
+    ann.append(text.index(search))
+    ann.append(ann[0] + len(search))
+    assert doc.char_span(ann[0], ann[1], "DATE").text == search
 
     search = "SAINSBURY&apos;S S/MKT"
-    ann = [24485, 24507]
-    assert doc.char_span(ann[0], ann[1], "LABEL1").text == search
-
-
-def test_nlp_sentence_span_with_html_tokenizer_file3():
-    from ner_classifier.html_tokenizer import HTMLTokenizer
-    # Test 1: Test proper HTML file
-    nlp = spacy.blank("en")
-    nlp.tokenizer = HTMLTokenizer(nlp.vocab)
-
-    text = open("/home/hodei/.config/ner-classifier/djtalo85/Lloyds/documents/"
-                "Statement_1_2017.html", "r").read()
-    doc = nlp(text)
-
-    assert str(doc) == text
+    ann = []
+    ann.append(text.index(search))
+    ann.append(ann[0] + len(search))
+    assert doc.char_span(ann[0], ann[1], "DESCRIPTION").text == search
