@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from os import getenv
-from .project import Project
+from ner_classifier.project import Project
 
 
 XDG_CONFIG_HOME = getenv("XDG_CONFIG_HOME", f"{getenv('HOME')}/.config")
@@ -35,7 +35,7 @@ class CLI:
 
 def main():
     cli = CLI()
-    project = Project(cli.get_annotations_file(), cli.get_config_dir())
+    _ = Project(cli.get_annotations_file(), cli.get_config_dir())
 
 
 if __name__ == "__main__":

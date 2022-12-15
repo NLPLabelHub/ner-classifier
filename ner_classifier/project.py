@@ -9,11 +9,11 @@ from spacy.tokens import DocBin
 import random
 from spacy.util import minibatch
 from spacy.training import Example
-from .html_tokenizer import HTMLTokenizer
+from ner_classifier.html_tokenizer import HTMLTokenizer
 
 
-TRAIN_SPACY_DOC = "./train.spacy"
-TRAIN_SPACY_MODEL = "./model.spacy"
+TRAIN_SPACY_DOC = "train.spacy"
+TRAIN_SPACY_MODEL = "model.spacy"
 
 
 class Project:
@@ -26,10 +26,8 @@ class Project:
         self.model_dir = config_dir
         self.documents = Documents(self.config["documents"], config_dir)
         self.documents.fetch_documents()
-        if not exists(TRAIN_SPACY_DOC):
-            self.documents.create_training_data()
-        if not exists(TRAIN_SPACY_MODEL):
-            self.documents.train_model(iterations=30)
+        self.documents.create_training_data()
+        self.documents.train_model(iterations=10)
 
 
 class Documents:
@@ -37,7 +35,11 @@ class Documents:
         self.documents = documents
         self.config_dir = config_dir
         self.documents_dir = join(config_dir, "documents")
+        self.models_dir = join(config_dir, "model")
+        self.train_data = join(config_dir, "model", TRAIN_SPACY_DOC)
+        self.model_file = join(config_dir, "model", TRAIN_SPACY_MODEL)
         makedirs(self.documents_dir, exist_ok=True)
+        makedirs(self.models_dir, exist_ok=True)
 
     def fetch_documents(self):
         print("[*] Fetching documents...")
@@ -52,6 +54,10 @@ class Documents:
                             f.write(chunk)
 
     def create_training_data(self):
+        if exists(self.train_data):
+            print("Using the existing training data. Set the --force-training "
+                  "option to recreate the training data.")
+            return
         print("[*] Creating training data")
         nlp = spacy.blank("en")
         nlp.tokenizer = HTMLTokenizer(nlp.vocab)
@@ -71,9 +77,7 @@ class Documents:
                 # If span is not found, it might be that the selection contains
                 # special symbols that need to escaped.
                 if span is None:
-                    selection = nlp.tokenizer.escape_selection(
-                        annotation["html_offset_start"],
-                        annotation["selection"])
+                    selection = annotation["selection"]
                     span = doc.char_span(
                         annotation["html_offset_start"],
                         annotation["html_offset_start"] + len(selection),
@@ -86,10 +90,10 @@ class Documents:
             doc.ents = ents
             db.add(doc)
 
-        db.to_disk(TRAIN_SPACY_DOC)
+        db.to_disk(self.train_data)
 
     def load_train_data(self):
-        doc_bin = DocBin().from_disk(TRAIN_SPACY_DOC)
+        doc_bin = DocBin().from_disk(self.train_data)
         train_data = []
         nlp = spacy.blank("en")
         nlp.tokenizer = HTMLTokenizer(nlp.vocab)
@@ -103,6 +107,10 @@ class Documents:
         return train_data
 
     def train_model(self, iterations):
+        if exists(self.model_file):
+            print("Model already exists. Set the --force-training "
+                  "option to recreate the training file.")
+            return
         train_data = self.load_train_data()
         # Create the builtin NER pipeline
         nlp = spacy.blank("en")
@@ -123,12 +131,12 @@ class Documents:
             for i in range(iterations):
                 random.shuffle(examples)
                 losses = {}
-                for batch in minibatch(examples, size=8):
+                for j, batch in enumerate(minibatch(examples, size=8)):
                     nlp.update(
                         batch,
                         drop=0.2,        # droput - make it harder to memorise
                         sgd=optimizer,   # sgd    - callable to update weights
                         losses=losses)
-                    print(losses)
-        pickle.dump(nlp, open(TRAIN_SPACY_MODEL, "wb"))
+                    print(f"Iter: {i},{j} Losses: {losses['ner']}")
+        pickle.dump(nlp, open(self.model_file, "wb"))
         return nlp
