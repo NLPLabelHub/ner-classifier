@@ -3,9 +3,7 @@ import logging
 import spacy
 from spacy.tokens import Doc
 from html.parser import HTMLParser
-from html.entities import name2codepoint
-from html import escape, unescape
-from bs4.dammit import EntitySubstitution
+from html import unescape
 
 
 # The HTML codes can be either:
@@ -42,146 +40,88 @@ def get_real_token(text, token):
 
 class HTMLTokenParser(HTMLParser):
     def __init__(self, nlp, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs, convert_charrefs=False)
         self.tokens = []
         self.nlp = nlp
-        # Unfortunately I didn't find a single library that escapes all
-        # characters at once. Hence using 2 different escape methods
-        # html_escape: Scapes characters such as "'"
-        # html.escape("&'4444'£")  => '&amp;&#x27;4444&#x27;£'
-        self.html_escape = escape
-        # bs4_escape: Scapes special symbols such as "£"
-        # bs4_escape("&'4444'£")  => "&amp;'4444'&pound;"
-        self.bs4_escape = EntitySubstitution().substitute_html
-
-    def replace_special_symbols(self, data):
-        # The below transformation is not perfect but if the original data is
-        # different to the transformation, then certainly there could be a
-        # special html symbol or entity
-        # - data = "&'4444'£"
-        # - self.html_escape(data) => '&amp;&#x27;4444&#x27;£'
-        #   Notice that the £ symbol wasn't escaped yet.
-        # - self.bs4_escape(self.html_escape(data)) =>
-        #           '&amp;amp;&amp;#x27;4444&amp;#x27;&pound;'
-        #   Notice that the & symbol was escaped again. so the above result
-        #   cannot be unescaped to get back to the original data. However,
-        #   after those 2 transformations we know that the data had symbols
-        #   that can be escaped, which is good enough.
-        can_be_escaped = self.bs4_escape(self.html_escape(data)) != data
-        if can_be_escaped:
-            start_index = sum([len(x) for x in self.tokens]) + \
-                sum([bool(x) for x in self.spaces])
-            return get_real_token(self.string[start_index:], data)
-        else:
-            return data
-
-    def escape_selection(self, start_pos, data):
-        """
-        In some cases, where the annotation selection contains special symbols,
-        they have to be found in the HTML text with the right symbols.
-
-        For instance the whole annotation "SAINSBURY'S S/MKT" might not exist
-        in the HTML, but "SAINSBURY&apos;S S/MKT" exists. Hence, we need to
-        return the string as it is found in the HTML.
-        """
-        text = self.string[start_pos:]
-        real_selection = ""
-        doc = self.nlp(data)
-        for token in doc:
-            real_selection += get_real_token(text, token.text)
-            if token.whitespace_:
-                real_selection += token.whitespace_
-            text = self.string[start_pos + len(real_selection):]
-        return real_selection
 
     def feed(self, string):
-        self.string = string
         self.tokens = []
         self.spaces = []
+        self.line_number = 0
         super().feed(string)
         return self.tokens, self.spaces
 
+    def update_tokens(self, tokens, spaces):
+        self.tokens.extend(tokens)
+        self.spaces.extend(spaces)
+        self.line_number += sum([len(x) for x in tokens]) + \
+            sum([bool(x) for x in spaces])
+        assert len(self.tokens) == len(self.spaces)
+
     def handle_starttag(self, tag, attrs):
         logging.debug("Handle startag: %s, (%s)", tag, attrs)
-        self.tokens.extend(["<", tag])
-        self.spaces.extend([False, bool(attrs)])
-        assert len(self.tokens) == len(self.spaces)
+        self.update_tokens(["<", tag], [False, bool(attrs)])
         for index, attr in enumerate(attrs):
-            self.tokens.extend([f"{attr[0]}", "=", "\""])
-            self.spaces.extend([False, False, False])
-            assert len(self.tokens) == len(self.spaces)
+            self.update_tokens(
+                [f"{attr[0]}", "=", "\""], [False, False, False])
             if attr[0] == "style":
                 styles = attr[1].split(";")
                 for style in styles:
                     if not style:
                         continue
                     words = style.split(":")
-                    self.tokens.extend([words[0], ":", words[1]])
-                    self.spaces.extend([False, False, False])
-                    assert len(self.tokens) == len(self.spaces)
-                    self.tokens.extend([";"])
-                    self.spaces.extend([False])
+                    self.update_tokens(
+                        [words[0], ":", words[1]], [False, False, False])
+                    self.update_tokens([";"], [False])
                 # Only remove last semicolon if actually the code doesn't have
                 # any semicolons at the end
                 if attr[1].strip()[-1] != ";":
-                    self.tokens.pop()  # Remove last semicolon
-                    self.spaces.pop()  # Remove last semicolon
+                    token = self.tokens.pop()  # Remove last semicolon
+                    self.line_number -= len(token)
+                    space = self.spaces.pop()  # Remove last semicolon
+                    if space:
+                        self.line_number -= 1
 
             else:
-                self.tokens.append(attr[1])
-                self.spaces.extend([False])
-                assert len(self.tokens) == len(self.spaces)
-            self.tokens.extend(["\""])
-            self.spaces.extend([index < len(attrs) - 1])
-        self.tokens.extend([">"])
-        self.spaces.extend([False])
-        assert len(self.tokens) == len(self.spaces)
+                self.update_tokens([attr[1]], [False])
+            self.update_tokens(["\""], [index < len(attrs) - 1])
+        self.update_tokens([">"], [False])
 
     def handle_endtag(self, tag):
         logging.debug("Handle endtag: %s", tag)
-        self.tokens.extend(["</", tag, ">"])
-        self.spaces.extend([False, False, False])
-        assert len(self.tokens) == len(self.spaces)
+        self.update_tokens(["</", tag, ">"], [False, False, False])
 
     def handle_data(self, data):
         logging.debug("Handle data: '%s'", data)
         doc = self.nlp(data)
         for token in doc:
-            self.tokens.append(self.replace_special_symbols(token.text))
-            self.spaces.append(token.whitespace_)
+            self.update_tokens([token.text], [token.whitespace_])
         assert len(self.tokens) == len(self.spaces)
 
     def handle_comment(self, data):
-        self.tokens.extend(["<", data, ">"])
-        self.spaces.extend([False, False, False])
-        assert len(self.tokens) == len(self.spaces)
+        self.update_tokens(["<", data, ">"], [False, False, False])
 
     def handle_entityref(self, name):
-        breakpoint()
-        c = chr(name2codepoint[name])
-        print("Named ent:", c)
+        data = unescape(f"&{name};")
+        token = get_real_token(self.rawdata[self.line_number:], data)
+        self.update_tokens([token], [False])
 
     def handle_charref(self, name):
-        breakpoint()
         if name.startswith('x'):
-            c = chr(int(name[1:], 16))
+            data = chr(int(name[1:], 16))
         else:
-            c = chr(int(name))
-        print("Num ent  :", c)
+            data = chr(int(name))
+        token = get_real_token(self.rawdata[self.line_number:], data)
+        self.update_tokens([token], [False])
 
     def handle_decl(self, data):
-        self.tokens.extend(["<!", data, ">"])
-        self.spaces.extend([False, False, False])
-        assert len(self.tokens) == len(self.spaces)
+        self.update_tokens(["<!", data, ">"], [False, False, False])
 
 
 class HTMLTokenizer:
     def __init__(self, vocab):
         self.vocab = vocab
         self.pyparser = HTMLTokenParser(spacy.blank("en"))
-
-    def escape_selection(self, start_index, data):
-        return self.pyparser.escape_selection(start_index, data)
 
     def __call__(self, string):
         words, spaces = self.pyparser.feed(string)

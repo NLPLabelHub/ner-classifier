@@ -18,25 +18,6 @@ def test_get_real_token():
     assert get_real_token(text + garbage_text, token="&'4444'£") == text
 
 
-def test_escape_selection():
-    from ner_classifier.html_tokenizer import HTMLTokenParser
-
-    nlp = spacy.blank("en")
-
-    parser = HTMLTokenParser(nlp)
-    parser.feed("<p>multiple       white   spaces</p>")
-    selection = "multiple       white   spaces"
-    real_selection = parser.escape_selection(3, selection)
-    assert selection == real_selection
-
-    parser = HTMLTokenParser(nlp)
-    raw_html = "multiple       &pound; white   spaces"
-    parser.feed(f"<p>{raw_html}</p>")
-    selection = "multiple       £ white   spaces"
-    real_selection = parser.escape_selection(3, selection)
-    assert raw_html == real_selection
-
-
 def test_html_tokenizer():
     """
     This tests that the tokenizer deals well with the below situations:
