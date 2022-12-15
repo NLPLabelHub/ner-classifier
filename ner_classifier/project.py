@@ -71,21 +71,16 @@ class Documents:
             ents = []
             for annotation in document["annotations"]:
                 span = doc.char_span(
-                    annotation["html_offset_start"],
-                    annotation["html_offset_end"],
+                    annotation["offset_start"],
+                    annotation["offset_end"],
                     label=annotation["label"])
-                # If span is not found, it might be that the selection contains
-                # special symbols that need to escaped.
+                # If the span is not found, very likely the tokenizer needs to
+                # be enhanced to tokenize properly all the tokens, specially
+                # symbols that need to be escaped.
                 if span is None:
-                    selection = annotation["selection"]
-                    span = doc.char_span(
-                        annotation["html_offset_start"],
-                        annotation["html_offset_start"] + len(selection),
-                        label=annotation["label"])
-                    if span is None:
-                        raise Exception(f"Annotation {annotation} cannot be "
-                                        f"found in HTML document. Stopping "
-                                        f"training")
+                    raise Exception(f"Annotation {annotation} cannot be "
+                                    f"found in HTML document. Stopping "
+                                    f"training")
                 ents.append(span)
             doc.ents = ents
             db.add(doc)
